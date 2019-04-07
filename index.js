@@ -91,6 +91,9 @@ function recievedEvent(msg) {
         case "help":
             msg.channel.send(HELP);
             break;
+        case "ping":
+            msg.react("✅")
+            break;
         case "log":
             events.doc(name)
                 .get()
