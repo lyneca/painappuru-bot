@@ -69,6 +69,9 @@ function error(msg, react) {
     return msg.react("❌").then(() => msg.react(react))
 }
 
+function notDefault(doc) {
+    return doc.id !== 'default';
+}
 
 function recievedEvent(msg) {
     const [_, command, name, ...people] = msg.content.split(' ');
@@ -155,7 +158,9 @@ function recievedEvent(msg) {
             (name === "today" ? events.where("day", "==", d.getUTCDay()) : events)
                 .get()
                 .then(qs => {
-                    if (qs.docs.length) msg.channel.send(qs.docs.map(doc => `\`${doc.data().name}\``).join(", "))
+                    if (qs.docs.length) msg.channel.send(qs.docs
+                        .filter(notDefault)
+                        .map(doc => `\`${doc.data().name}\``).join(", "))
                     else msg.channel.send("No events.")
                 });
             break;
