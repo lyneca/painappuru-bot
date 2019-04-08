@@ -59,6 +59,9 @@ admin.initializeApp({
 
 const firestore = admin.firestore()
 
+const events = firestore.collection("events");
+const tallies = firestore.collection("tallies");
+
 const client = new Discord.Client();
 
 function authorized(msg) {
@@ -73,6 +76,93 @@ function notDefault(doc) {
     return doc.id !== 'default';
 }
 
+function commandHelp(msg) {
+    msg.channel.send(HELP);
+}
+
+function commandPing(msg) {
+    msg.react("✅")
+}
+
+function commandLog(msg, event, mentions) {
+    const d = new Date();
+
+    return events.doc(event)
+        .get()
+        .then(doc => {
+            if (d.getUTCDay() === doc.data().day) {
+                return firestore.collection("tallies")
+                    .add({
+                        event: event,
+                        timestamp: new Date(),
+                        users: mentions
+                    })
+                    .then(() => {
+                        msg.react("✅")
+                    })
+            }
+            return error(msg, "📅");
+        })
+        .catch(e => {
+            console.log(e);
+            return error(msg, "❓");
+        })
+}
+
+function commandInfo(msg, user, event) {
+    if (event) {
+        return tallies.where("users", "array-contains", user)
+            .where("event", "==", event)
+            .get()
+            .then(qs => {
+                msg.channel.send(`User \`${user}\` has attended ${qs.docs.length} \`${event}\` event(s).`)
+            });
+    }
+    return tallies.where("users", "array-contains", user)
+        .get()
+        .then(qs => {
+            msg.channel.send(`User \`${user}\` has attended ${qs.docs.length} event(s) total.`)
+        });
+}
+
+function commandList(msg, name, today) {
+    const d = new Date();
+
+    (name === "today" ? events.where("day", "==", d.getUTCDay()) : events)
+        .get()
+        .then(qs => {
+            if (qs.docs.length) msg.channel.send(qs.docs
+                .filter(notDefault)
+                .map(doc => `\`${doc.data().name}\``)
+                .join(", "))
+
+            else msg.channel.send("No events.")
+        });
+}
+
+function commandSet(msg, name, day) {
+    if (!authorized(msg)) return error(msg, "🔒");
+    return events.doc(name)
+        .set({
+            name: name,
+            day: days[day.substr(0, 3).toLowerCase()]
+        })
+        .then(() => {
+            msg.react("✅")
+        })
+}
+
+function commandDelete(msg, name) {
+    if (!authorized(msg)) {
+        return error(msg, "🔒");
+    }
+    return events.doc(name)
+        .delete()
+        .then(() => {
+            msg.react("✅")
+        });
+}
+
 function recievedEvent(msg) {
     const [_, command, name, ...people] = msg.content.split(' ');
 
@@ -82,94 +172,23 @@ function recievedEvent(msg) {
         return m.user.username
     });
 
-    const d = new Date();
-
-    const events = firestore.collection("events");
-    const tallies = firestore.collection("tallies");
-
     switch (command) {
         case "help":
-            msg.channel.send(HELP);
-            break;
+            return commandHelp(msg);
         case "ping":
-            msg.react("✅")
-            break;
+            return commandPing(msg);
         case "log":
-            events.doc(name)
-                .get()
-                .then(doc => {
-                    if (d.getUTCDay() === doc.data().day) {
-                        return firestore.collection("tallies")
-                            .add({
-                                event: name,
-                                timestamp: new Date(),
-                                users: members
-                            })
-                            .then(() => {
-                                msg.react("✅")
-                            })
-                    }
-                    return error(msg, "📅");
-                })
-                .catch(e => {
-                    console.log(e);
-                    return error(msg, "❓");
-                })
-            break;
+            return commandLog(msg, name);
         case "info":
-            if (people.length > 0) {
-                tallies.where("users", "array-contains", members[0])
-                    .where("event", "==", people[0])
-                    .get()
-                    .then(qs => {
-                        msg.channel.send(`User \`${members[0]}\` has attended ${qs.docs.length} \`${people[0]}\` event(s).`)
-                    });
-            } else {
-                tallies.where("users", "array-contains", members[0])
-                    .get()
-                    .then(qs => {
-                        msg.channel.send(`User \`${members[0]}\` has attended ${qs.docs.length} event(s) total.`)
-                    });
-            }
-            break;
+            return commandInfo(msg, name, people.length > 0 ? people[0] : undefined)
         case "set":
-            if (!authorized(msg)) {
-                error(msg, "🔒");
-                break;
-            }
-            events.doc(name)
-                .set({
-                    name: name,
-                    day: days[people[0].substr(0, 3).toLowerCase()]
-                })
-                .then(() => {
-                    msg.react("✅")
-                })
-            break;
+            return commandSet(msg, name, people[0])
         case "delete":
-            if (!authorized(msg)) {
-                error(msg, "🔒");
-                break;
-            }
-            events.doc(name)
-                .delete()
-                .then(() => {
-                    msg.react("✅")
-                });
-            break;
+            return commandDelete(msg, name);
         case "list":
-            (name === "today" ? events.where("day", "==", d.getUTCDay()) : events)
-                .get()
-                .then(qs => {
-                    if (qs.docs.length) msg.channel.send(qs.docs
-                        .filter(notDefault)
-                        .map(doc => `\`${doc.data().name}\``).join(", "))
-                    else msg.channel.send("No events.")
-                });
-            break;
+            return commandList(msg, name, people[0] === "today")
         default:
-            error(msg, "❔")
-            break;
+            return error(msg, "❔")
     }
 }
 
